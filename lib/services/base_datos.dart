@@ -266,23 +266,29 @@ class BaseDatos {
 
   Future<List<Producto>> listar({String filtro = ''}) async {
     final db = await _bd;
-    final filas = filtro.isEmpty
-        ? await db.query('productos', orderBy: 'nombre')
-        : await db.query(
-            'productos',
-            where: 'nombre LIKE ? OR codigo LIKE ?',
-            whereArgs: ['%$filtro%', '%$filtro%'],
-            orderBy: 'nombre',
-          );
+    final f = filtro.trim();
+    if (f.isEmpty) {
+      final filas = await db.query('productos', orderBy: 'nombre');
+      return filas.map(Producto.fromMap).toList();
+    }
+    final filas = await db.query(
+      'productos',
+      where:
+          'nombre LIKE ? OR (codigo IS NOT NULL AND codigo != "" AND codigo LIKE ?)',
+      whereArgs: ['%$f%', '%$f%'],
+      orderBy: 'nombre',
+    );
     return filas.map(Producto.fromMap).toList();
   }
 
   Future<Producto?> buscarPorCodigo(String codigo) async {
+    final c = codigo.trim();
+    if (c.isEmpty) return null;
     final db = await _bd;
     final filas = await db.query(
       'productos',
       where: 'codigo = ?',
-      whereArgs: [codigo],
+      whereArgs: [c],
       limit: 1,
     );
     return filas.isEmpty ? null : Producto.fromMap(filas.first);

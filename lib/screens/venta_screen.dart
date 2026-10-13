@@ -77,15 +77,31 @@ class VentaScreenState extends State<VentaScreen> {
   }
 
   Future<void> _leerEscaner(String valor) async {
-    final texto = valor.trim();
+    // Pausa breve para asegurar que el escáner USB haya enviado todos los caracteres
+    await Future.delayed(const Duration(milliseconds: 100));
+    final texto = _escanerCtrl.text.trim();
     if (texto.isEmpty) return;
+
     final porCodigo = await BaseDatos.instancia.buscarPorCodigo(texto);
     if (porCodigo != null) {
       _agregar(porCodigo);
+      _escanerCtrl.clear();
+      _catalogo = await BaseDatos.instancia.listar(); // restaurar catálogo completo
     } else {
       _catalogo = await BaseDatos.instancia.listar(filtro: texto);
+      _escanerCtrl.clear();
+      if (_catalogo.isEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '⚠️ No se encontró producto con el código o nombre "$texto"',
+            ),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        _catalogo = await BaseDatos.instancia.listar();
+      }
     }
-    _escanerCtrl.clear();
     if (mounted) {
       setState(() {});
       _escanerFocus.requestFocus(); // listo para el siguiente escaneo

@@ -72,8 +72,11 @@ class InventarioScreenState extends State<InventarioScreen> {
               children: [
                 TextFormField(
                   controller: codigoCtrl,
+                  textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
                     labelText: 'Código de barras',
+                    hintText: 'Escanea o escribe el código',
+                    prefixIcon: Icon(Icons.qr_code_scanner),
                   ),
                 ),
                 TextFormField(
