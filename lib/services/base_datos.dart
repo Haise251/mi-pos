@@ -38,7 +38,7 @@ class BaseDatos {
   }
 
   Future<void> _alActualizar(Database db, int oldV, int newV) async {
-    await _crearTablas(db); // IF NOT EXISTS: seguro sobre BDs viejas
+    await _crearTablas(db);
     await _sembrarAdmin(db);
   }
 
@@ -184,7 +184,6 @@ class BaseDatos {
         detalle    TEXT
       )
     ''');
-    // Migraciones para BDs creadas en versiones anteriores
     try {
       await db.execute(
         'ALTER TABLE productos ADD COLUMN stock_minimo INTEGER NOT NULL DEFAULT 5',
@@ -215,14 +214,14 @@ class BaseDatos {
         Sqflite.firstIntValue(
           await db.query('usuarios', columns: ['COUNT(*)']),
         ) ??
-        0;
+            0;
     if (n > 0) return;
     final salt = _saltAleatorio();
     await db.insert('usuarios', {
       'nombre': 'Administrador',
       'usuario': 'admin',
       'salt': salt,
-      'hash': _hashear(salt, 'admin123'), // ⚠️ cámbiala tras el primer login
+      'hash': _hashear(salt, 'admin123'),
       'rol': 'admin',
       'activo': 1,
       'creado_en': DateTime.now().toIso8601String(),
@@ -231,7 +230,6 @@ class BaseDatos {
 
   // ---------- Bitácora ----------
 
-  /// Registra una acción en la bitácora (fuera de transacciones).
   Future<void> registrarBitacora(String accion, [String? detalle]) async {
     await (await _bd).insert('bitacora', {
       'fecha': DateTime.now().toIso8601String(),
@@ -241,12 +239,11 @@ class BaseDatos {
     });
   }
 
-  /// Versión para usar DENTRO de una transacción.
   Future<void> _bitacoraTxn(
-    Transaction txn,
-    String accion, [
-    String? detalle,
-  ]) async {
+      Transaction txn,
+      String accion, [
+        String? detalle,
+      ]) async {
     await txn.insert('bitacora', {
       'fecha': DateTime.now().toIso8601String(),
       'usuario_id': SesionActual.usuarioId,
@@ -255,7 +252,6 @@ class BaseDatos {
     });
   }
 
-  /// Últimos registros de la bitácora con nombre de usuario.
   Future<List<Map<String, dynamic>>> listarBitacora({int limite = 300}) async {
     final db = await _bd;
     return db.rawQuery(
@@ -271,17 +267,25 @@ class BaseDatos {
 
   // ---------- Productos ----------
 
-  Future<List<Producto>> listar({String filtro = ''}) async {
+  Future<List<Producto>> listar({
+    String filtro = '',
+    bool incluirOcultos = false,
+  }) async {
     final db = await _bd;
     final f = filtro.trim();
+    final excluirCond = incluirOcultos ? '1=1' : "codigo != '0000001'";
     if (f.isEmpty) {
-      final filas = await db.query('productos', orderBy: 'nombre');
+      final filas = await db.query(
+        'productos',
+        where: excluirCond,
+        orderBy: 'nombre',
+      );
       return filas.map(Producto.fromMap).toList();
     }
     final filas = await db.query(
       'productos',
       where:
-          'nombre LIKE ? OR (codigo IS NOT NULL AND codigo != "" AND codigo LIKE ?)',
+      '$excluirCond AND (nombre LIKE ? OR (codigo IS NOT NULL AND codigo != "" AND codigo LIKE ?))',
       whereArgs: ['%$f%', '%$f%'],
       orderBy: 'nombre',
     );
@@ -307,11 +311,11 @@ class BaseDatos {
     final id = p.id == null
         ? await db.insert('productos', mapa)
         : await db.update(
-            'productos',
-            mapa,
-            where: 'id = ?',
-            whereArgs: [p.id],
-          );
+      'productos',
+      mapa,
+      where: 'id = ?',
+      whereArgs: [p.id],
+    );
     await registrarBitacora(
       p.id == null ? 'producto_crear' : 'producto_editar',
       '${p.nombre} · \$${p.precio.toStringAsFixed(2)}',
@@ -338,14 +342,13 @@ class BaseDatos {
     return n;
   }
 
-  /// Elimina TODOS los productos y limpia movimientos huérfanos.
   Future<void> vaciarProductos() async {
     final db = await _bd;
     final n =
         Sqflite.firstIntValue(
           await db.query('productos', columns: ['COUNT(*)']),
         ) ??
-        0;
+            0;
     await db.delete('productos');
     await db.rawDelete(
       'DELETE FROM movimientos WHERE producto_id NOT IN (SELECT id FROM productos)',
@@ -353,14 +356,13 @@ class BaseDatos {
     await registrarBitacora('producto_vaciar', 'Se eliminaron $n productos');
   }
 
-  /// Descuenta/aumenta stock y registra el movimiento (kardex).
   Future<void> ajustarStock(
-    int id,
-    int delta, {
-    String tipo = 'salida',
-    String? referencia,
-    int? usuarioId,
-  }) async {
+      int id,
+      int delta, {
+        String tipo = 'salida',
+        String? referencia,
+        int? usuarioId,
+      }) async {
     final db = await _bd;
     await db.transaction((txn) async {
       await txn.rawUpdate(
@@ -391,7 +393,6 @@ class BaseDatos {
     });
   }
 
-  /// Kardex: últimos movimientos (opcionalmente de un producto).
   Future<List<Map<String, dynamic>>> listarMovimientos({
     int? productoId,
     int limite = 200,
@@ -412,7 +413,6 @@ class BaseDatos {
 
   // ---------- Ventas ----------
 
-  /// Registra la venta completa en una transacción.
   Future<int> registrarVenta({
     required List<ItemVenta> items,
     required List<Pago> pagos,
@@ -504,7 +504,6 @@ class BaseDatos {
 
   // ---------- Compras ----------
 
-  /// Registra la compra: aumenta stock, guarda kardex como entrada.
   Future<int> registrarCompra({
     required String proveedor,
     required List<ItemCompra> items,
@@ -582,7 +581,6 @@ class BaseDatos {
     return {'compra': compra.first, 'items': items};
   }
 
-  /// Compras a crédito con saldo pendiente (Cuentas por pagar).
   Future<List<Map<String, dynamic>>> comprasConSaldo() async {
     final db = await _bd;
     return db.rawQuery('''
@@ -598,9 +596,9 @@ class BaseDatos {
   }
 
   Future<List<Map<String, dynamic>>> pagosDeCompra(
-    int compraId, {
-    int limite = 20,
-  }) async {
+      int compraId, {
+        int limite = 20,
+      }) async {
     final db = await _bd;
     return db.query(
       'pagos_compra',
@@ -611,7 +609,6 @@ class BaseDatos {
     );
   }
 
-  /// Registra un pago a proveedor. Si el saldo llega a 0, la compra se marca pagada.
   Future<void> registrarPagoCompra({
     required int compraId,
     required double montoUsd,
@@ -667,10 +664,15 @@ class BaseDatos {
     c.toMap()..removeWhere((k, v) => k == 'id' && v == null),
   );
 
+  Future<int> guardarCliente({
+    required String nombre,
+    String telefono = '',
+  }) async =>
+      insertarCliente(Cliente(nombre: nombre, telefono: telefono));
+
   Future<List<Map<String, dynamic>>> listarClientes() async =>
       (await _bd).query('clientes', orderBy: 'nombre');
 
-  /// Saldo pendiente por cliente (ventas a crédito - abonos).
   Future<List<Map<String, dynamic>>> clientesConSaldo() async {
     final db = await _bd;
     return db.rawQuery('''
@@ -684,7 +686,6 @@ class BaseDatos {
     ''');
   }
 
-  /// Créditos pendientes de un cliente, con monto pagado de cada venta.
   Future<List<Map<String, dynamic>>> creditosDeCliente(int clienteId) async {
     final db = await _bd;
     return db.rawQuery(
@@ -703,9 +704,9 @@ class BaseDatos {
   }
 
   Future<List<Map<String, dynamic>>> abonosDeCliente(
-    int clienteId, {
-    int limite = 30,
-  }) async {
+      int clienteId, {
+        int limite = 30,
+      }) async {
     final db = await _bd;
     return db.query(
       'abonos',
@@ -716,7 +717,6 @@ class BaseDatos {
     );
   }
 
-  /// Registra un abono a un crédito. Si el saldo llega a 0, la venta se marca pagada.
   Future<void> registrarAbono({
     required int ventaId,
     required int clienteId,
@@ -769,9 +769,36 @@ class BaseDatos {
     });
   }
 
+  Future<Producto> obtenerProductoAvance() async {
+    final db = await _bd;
+    final filas = await db.query(
+      'productos',
+      where: 'codigo = ?',
+      whereArgs: ['0000001'],
+      limit: 1,
+    );
+    if (filas.isNotEmpty) {
+      return Producto.fromMap(filas.first);
+    }
+    final id = await db.insert('productos', {
+      'codigo': '0000001',
+      'nombre': 'Avance de Efectivo',
+      'precio': 0.0,
+      'stock': 0,
+      'stock_minimo': 0,
+      'stock_ilimitado': 1,
+    });
+    return Producto(
+      id: id,
+      codigo: '0000001',
+      nombre: 'Avance de Efectivo',
+      precio: 0.0,
+      stockIlimitado: true,
+    );
+  }
+
   // ---------- Reportes ----------
 
-  /// Resumen de un día ('yyyy-MM-dd') + lista de sus ventas.
   Future<Map<String, dynamic>> resumenDia(String dia) async {
     final db = await _bd;
     final ventas = await db.rawQuery(
@@ -792,6 +819,33 @@ class BaseDatos {
     ''',
       [dia],
     );
+    final efectivoVentas = await db.rawQuery(
+      '''
+      SELECT COALESCE(SUM(vp.monto_usd),0) AS total_usd,
+             COALESCE(SUM(vp.monto_bs),0) AS total_bs
+      FROM venta_pagos vp JOIN ventas v ON v.id = vp.venta_id
+      WHERE date(v.fecha) = ? AND vp.metodo = 'efectivo'
+    ''',
+      [dia],
+    );
+    final efectivoAbonos = await db.rawQuery(
+      '''
+      SELECT COALESCE(SUM(monto_usd),0) AS total_usd,
+             COALESCE(SUM(monto_bs),0) AS total_bs
+      FROM abonos
+      WHERE date(fecha) = ? AND metodo = 'efectivo'
+    ''',
+      [dia],
+    );
+    final avancesEntregados = await db.rawQuery(
+      '''
+      SELECT COALESCE(SUM(vd.subtotal_usd),0) AS total_usd
+      FROM venta_detalle vd
+      JOIN ventas v ON v.id = vd.venta_id
+      WHERE date(v.fecha) = ? AND (vd.nombre_producto LIKE 'Avance%' OR vd.producto_id = (SELECT id FROM productos WHERE codigo = '0000001'))
+    ''',
+      [dia],
+    );
     final compras = await db.rawQuery(
       '''
       SELECT COUNT(*) AS n, COALESCE(SUM(total_usd),0) AS total_usd
@@ -806,17 +860,41 @@ class BaseDatos {
     ''',
       [dia],
     );
-    final lista = await db.query(
-      'ventas',
-      where: 'date(fecha) = ?',
-      whereArgs: [dia],
-      orderBy: 'id DESC',
+    final lista = await db.rawQuery(
+      '''
+      SELECT v.*,
+             (SELECT GROUP_CONCAT(vp.metodo, ', ') FROM venta_pagos vp WHERE vp.venta_id = v.id) AS metodos_pago
+      FROM ventas v
+      WHERE date(v.fecha) = ?
+      ORDER BY v.id DESC
+    ''',
+      [dia],
     );
+
+    final efVUsd = (efectivoVentas.first['total_usd'] as num?)?.toDouble() ?? 0;
+    final efVBs = (efectivoVentas.first['total_bs'] as num?)?.toDouble() ?? 0;
+    final efAUsd = (efectivoAbonos.first['total_usd'] as num?)?.toDouble() ?? 0;
+    final efABs = (efectivoAbonos.first['total_bs'] as num?)?.toDouble() ?? 0;
+
+    final avUsd =
+        (avancesEntregados.first['total_usd'] as num?)?.toDouble() ?? 0;
+    final totalVBs = (ventas.first['total_bs'] as num?)?.toDouble() ?? 0;
+    final totalVUsd = (ventas.first['total_usd'] as num?)?.toDouble() ?? 0;
+    final tasaProm = totalVUsd > 0 ? totalVBs / totalVUsd : 1.0;
+    final avBs = avUsd * tasaProm;
+
+    final espUsd = (efVUsd + efAUsd - avUsd) < 0 ? 0.0 : (efVUsd + efAUsd - avUsd);
+    final espBs = (efVBs + efABs - avBs) < 0 ? 0.0 : (efVBs + efABs - avBs);
+
     return {
       'numVentas': Sqflite.firstIntValue(ventas) ?? 0,
-      'totalUsd': (ventas.first['total_usd'] as num?)?.toDouble() ?? 0,
-      'totalBs': (ventas.first['total_bs'] as num?)?.toDouble() ?? 0,
+      'totalUsd': totalVUsd,
+      'totalBs': totalVBs,
       'pagos': pagos,
+      'efectivoEsperadoUsd': espUsd,
+      'efectivoEsperadoBs': espBs,
+      'avancesUsd': avUsd,
+      'avancesBs': avBs,
       'numCompras': Sqflite.firstIntValue(compras) ?? 0,
       'comprasUsd': (compras.first['total_usd'] as num?)?.toDouble() ?? 0,
       'numAbonos': Sqflite.firstIntValue(abonos) ?? 0,
@@ -825,7 +903,23 @@ class BaseDatos {
     };
   }
 
-  /// Top de productos más vendidos en los últimos [dias] días.
+  Future<List<Map<String, dynamic>>> productosVendidosDia(String dia) async {
+    final db = await _bd;
+    return db.rawQuery(
+      '''
+      SELECT vd.nombre_producto AS nombre,
+             SUM(vd.cantidad) AS cantidad,
+             SUM(vd.subtotal_usd) AS total_usd
+      FROM venta_detalle vd
+      JOIN ventas v ON v.id = vd.venta_id
+      WHERE date(v.fecha) = ?
+      GROUP BY vd.nombre_producto
+      ORDER BY cantidad DESC
+    ''',
+      [dia],
+    );
+  }
+
   Future<List<Map<String, dynamic>>> topProductos({
     int dias = 30,
     int limite = 10,
@@ -898,18 +992,18 @@ class BaseDatos {
   Future<int> contarAdmins({int? excluido}) async {
     final db = await _bd;
     return Sqflite.firstIntValue(
-          await db.query(
-            'usuarios',
-            columns: ['COUNT(*)'],
-            where:
-                "rol = 'admin' AND activo = 1${excluido != null ? ' AND id != ?' : ''}",
-            whereArgs: [?excluido],
-          ),
-        ) ??
+      await db.query(
+        'usuarios',
+        columns: ['COUNT(*)'],
+        where:
+        "rol = 'admin' AND activo = 1${excluido != null ? ' AND id != ?' : ''}",
+        whereArgs: [?excluido],
+      ),
+    ) ??
         0;
   }
 
-  // ---------- Configuración (tasa, negocio, licencia, trial) ----------
+  // ---------- Configuración ----------
 
   Future<String?> getConfig(String clave) async {
     final filas = await (await _bd).query(
@@ -935,7 +1029,6 @@ class BaseDatos {
     whereArgs: [clave],
   );
 
-  /// Tasa Bs por 1 USD (default 40 si nunca se ha configurado).
   Future<double> obtenerTasa() async {
     final v = await getConfig('tasa_bs');
     return double.tryParse(v ?? '') ?? 40.0;
@@ -949,6 +1042,19 @@ class BaseDatos {
     );
   }
 
+  Future<double> obtenerComisionAvance() async {
+    final v = await getConfig('comision_avance');
+    return double.tryParse(v ?? '') ?? 5.0;
+  }
+
+  Future<void> guardarComisionAvance(double pct) async {
+    await setConfig('comision_avance', pct.toString());
+    await registrarBitacora(
+      'config',
+      'Comisión de avance efectivo: ${pct.toStringAsFixed(2)}%',
+    );
+  }
+
   Future<String> obtenerNombreNegocio() async =>
       await getConfig('nombre_negocio') ?? 'Mi POS';
 
@@ -957,13 +1063,11 @@ class BaseDatos {
     await registrarBitacora('config', 'Nombre del negocio: $nombre');
   }
 
-  // ---------- Utilidades de hash ----------
-
   static String _saltAleatorio() {
     final r = Random.secure();
     return List.generate(
       16,
-      (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0'),
+          (_) => r.nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
   }
 

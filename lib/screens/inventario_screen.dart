@@ -8,9 +8,8 @@ import '../services/sesion.dart';
 class InventarioScreen extends StatefulWidget {
   final bool soloLectura;
 
-  /// Por defecto: los cajeros ven el inventario sin poder editar.
   InventarioScreen({super.key, bool? soloLectura})
-    : soloLectura = soloLectura ?? !SesionActual.esAdmin;
+      : soloLectura = soloLectura ?? !SesionActual.esAdmin;
 
   @override
   InventarioScreenState createState() => InventarioScreenState();
@@ -39,8 +38,6 @@ class InventarioScreenState extends State<InventarioScreen> {
     if (mounted) setState(() {});
   }
 
-  /// HomeScreen llama esto al entrar a la pestaña o volver de otras
-  /// pantallas (Compras, etc.), para reflejar cambios de stock.
   Future<void> recargar() => _cargar();
 
   // ---------- Formulario alta/edición ----------
@@ -86,7 +83,7 @@ class InventarioScreenState extends State<InventarioScreen> {
                     controller: nombreCtrl,
                     decoration: const InputDecoration(labelText: 'Nombre *'),
                     validator: (v) =>
-                        (v == null || v.trim().isEmpty) ? 'Requerido' : null,
+                    (v == null || v.trim().isEmpty) ? 'Requerido' : null,
                   ),
                   TextFormField(
                     controller: precioCtrl,
@@ -97,11 +94,10 @@ class InventarioScreenState extends State<InventarioScreen> {
                       labelText: 'Precio en \$ *',
                     ),
                     validator: (v) =>
-                        double.tryParse(v?.replaceAll(',', '.') ?? '') == null
+                    double.tryParse(v?.replaceAll(',', '.') ?? '') == null
                         ? 'Número inválido'
                         : null,
                   ),
-                  // Referencia en Bs en vivo, según la tasa actual
                   ValueListenableBuilder<TextEditingValue>(
                     valueListenable: precioCtrl,
                     builder: (_, val, _) {
@@ -135,7 +131,7 @@ class InventarioScreenState extends State<InventarioScreen> {
                     TextFormField(
                       controller: stockCtrl,
                       keyboardType: TextInputType.number,
-                      enabled: producto == null, // en edición, usar "Ajustar"
+                      enabled: producto == null,
                       decoration: InputDecoration(
                         labelText: 'Existencias',
                         helperText: producto == null
@@ -171,8 +167,8 @@ class InventarioScreenState extends State<InventarioScreen> {
                   stock: esIlimitado
                       ? 0
                       : (producto == null
-                          ? (int.tryParse(stockCtrl.text) ?? 0)
-                          : producto.stock),
+                      ? (int.tryParse(stockCtrl.text) ?? 0)
+                      : producto.stock),
                   stockMinimo: esIlimitado
                       ? 0
                       : (int.tryParse(minCtrl.text) ?? 5),
@@ -290,8 +286,6 @@ class InventarioScreenState extends State<InventarioScreen> {
     _cargar();
   }
 
-  // ---------- Kardex del producto ----------
-
   Future<void> _verKardex(Producto p) async {
     final movs = await BaseDatos.instancia.listarMovimientos(
       productoId: p.id,
@@ -310,7 +304,7 @@ class InventarioScreenState extends State<InventarioScreen> {
           const SizedBox(height: 8),
           if (movs.isEmpty) const Text('Sin movimientos registrados'),
           ...movs.map(
-            (m) => ListTile(
+                (m) => ListTile(
               dense: true,
               leading: Icon(
                 m['tipo'] == 'entrada'
@@ -338,14 +332,16 @@ class InventarioScreenState extends State<InventarioScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: Text('¿Eliminar "${p.nombre}"?'),
+        content: const Text('Esta acción eliminará el producto del inventario.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('No'),
+            child: const Text('Cancelar'),
           ),
           FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Sí, eliminar'),
+            child: const Text('Eliminar'),
           ),
         ],
       ),
@@ -363,8 +359,8 @@ class InventarioScreenState extends State<InventarioScreen> {
         title: const Text('¿Vaciar catálogo?'),
         content: const Text(
           'Se eliminarán TODOS los productos del inventario.\n\n'
-          'Las ventas ya registradas conservan su detalle histórico.\n'
-          'Esta acción no se puede deshacer.',
+              'Las ventas ya registradas conservan su detalle histórico.\n'
+              'Esta acción no se puede deshacer.',
         ),
         actions: [
           TextButton(
@@ -390,23 +386,23 @@ class InventarioScreenState extends State<InventarioScreen> {
     return Scaffold(
       floatingActionButton: _editable
           ? Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                FloatingActionButton.small(
-                  heroTag: 'fab_vaciar',
-                  tooltip: 'Vaciar catálogo',
-                  onPressed: _vaciarCatalogo,
-                  child: const Icon(Icons.delete_sweep_outlined),
-                ),
-                const SizedBox(height: 10),
-                FloatingActionButton.extended(
-                  heroTag: 'fab_nuevo',
-                  onPressed: () => _formulario(),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Producto'),
-                ),
-              ],
-            )
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.small(
+            heroTag: 'fab_vaciar',
+            tooltip: 'Vaciar catálogo',
+            onPressed: _vaciarCatalogo,
+            child: const Icon(Icons.delete_sweep_outlined),
+          ),
+          const SizedBox(height: 10),
+          FloatingActionButton.extended(
+            heroTag: 'fab_nuevo',
+            onPressed: () => _formulario(),
+            icon: const Icon(Icons.add),
+            label: const Text('Producto'),
+          ),
+        ],
+      )
           : null,
       body: Column(
         children: [
@@ -428,15 +424,15 @@ class InventarioScreenState extends State<InventarioScreen> {
                     },
                   ),
                 ),
-                // 🔘 Botón para actualizar el inventario (stock tras compras)
+                const SizedBox(width: 8),
                 IconButton(
                   tooltip: 'Actualizar inventario',
                   icon: _cargando
                       ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                       : const Icon(Icons.refresh),
                   onPressed: _cargar,
                 ),
@@ -447,68 +443,71 @@ class InventarioScreenState extends State<InventarioScreen> {
             child: _productos.isEmpty
                 ? const Center(child: Text('Sin productos'))
                 : ListView.separated(
-                    itemCount: _productos.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (_, i) {
-                      final p = _productos[i];
-                      final color = p.stockIlimitado
-                          ? Colors.teal
-                          : (p.sinStock
-                              ? Colors.red
-                              : (p.bajoStock ? Colors.orange : Colors.teal));
-                      return ListTile(
-                        leading: Icon(
-                          p.stockIlimitado
-                              ? Icons.all_inclusive
-                              : Icons.inventory_2_outlined,
-                          color: color,
-                        ),
-                        title: Text(p.nombre),
-                        subtitle: Text(
-                          'Cód: ${p.codigo.isEmpty ? '—' : p.codigo}',
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  '${formatoUsd(p.precio)} · ${formatoBs(p.precio * _tasa)}',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                Text(
-                                  p.stockIlimitado
-                                      ? 'Stock: Ilimitado ∞'
-                                      : 'Stock: ${p.stock}',
-                                  style: TextStyle(fontSize: 12, color: color),
-                                ),
-                              ],
-                            ),
-                            if (_editable) ...[
-                              IconButton(
-                                tooltip: 'Ajustar stock',
-                                icon: const Icon(Icons.tune),
-                                onPressed: () => _ajustarStock(p),
-                              ),
-                              IconButton(
-                                tooltip: 'Kardex',
-                                icon: const Icon(Icons.history),
-                                onPressed: () => _verKardex(p),
-                              ),
-                            ],
-                          ],
-                        ),
-                        onTap: _editable ? () => _formulario(p) : null,
-                        onLongPress: _editable
-                            ? () => _confirmarEliminar(p)
-                            : null,
-                      );
-                    },
+              itemCount: _productos.length,
+              separatorBuilder: (_, _) => const Divider(height: 1),
+              itemBuilder: (_, i) {
+                final p = _productos[i];
+                final color = p.stockIlimitado
+                    ? Colors.teal
+                    : (p.sinStock
+                    ? Colors.red
+                    : (p.bajoStock ? Colors.orange : Colors.teal));
+                return ListTile(
+                  leading: Icon(
+                    p.stockIlimitado
+                        ? Icons.all_inclusive
+                        : Icons.inventory_2_outlined,
+                    color: color,
                   ),
+                  title: Text(p.nombre),
+                  subtitle: Text('Cód: ${p.codigo.isEmpty ? '—' : p.codigo}'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            '${formatoUsd(p.precio)} · ${formatoBs(p.precio * _tasa)}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            p.stockIlimitado
+                                ? 'Stock: Ilimitado ∞'
+                                : 'Stock: ${p.stock}',
+                            style: TextStyle(fontSize: 12, color: color),
+                          ),
+                        ],
+                      ),
+                      if (_editable) ...[
+                        IconButton(
+                          tooltip: 'Ajustar stock',
+                          icon: const Icon(Icons.tune),
+                          onPressed: () => _ajustarStock(p),
+                        ),
+                        IconButton(
+                          tooltip: 'Kardex',
+                          icon: const Icon(Icons.history),
+                          onPressed: () => _verKardex(p),
+                        ),
+                        IconButton(
+                          tooltip: 'Eliminar producto',
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.red,
+                          ),
+                          onPressed: () => _confirmarEliminar(p),
+                        ),
+                      ],
+                    ],
+                  ),
+                  onTap: _editable ? () => _formulario(p) : null,
+                );
+              },
+            ),
           ),
         ],
       ),
@@ -516,4 +515,4 @@ class InventarioScreenState extends State<InventarioScreen> {
   }
 }
 
-enum _TipoAjuste { entrada, salida }
+enum _TipoAjuste {entrada, salida}

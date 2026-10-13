@@ -15,6 +15,7 @@ class _AjustesScreenState extends State<AjustesScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nombreCtrl = TextEditingController();
   final _tasaCtrl = TextEditingController();
+  final _comisionCtrl = TextEditingController();
   bool _cargando = true;
 
   @override
@@ -27,6 +28,7 @@ class _AjustesScreenState extends State<AjustesScreen> {
   void dispose() {
     _nombreCtrl.dispose();
     _tasaCtrl.dispose();
+    _comisionCtrl.dispose();
     super.dispose();
   }
 
@@ -34,15 +36,21 @@ class _AjustesScreenState extends State<AjustesScreen> {
     _nombreCtrl.text = await BaseDatos.instancia.obtenerNombreNegocio();
     final tasa = await BaseDatos.instancia.obtenerTasa();
     _tasaCtrl.text = tasa.toString();
+    final comision = await BaseDatos.instancia.obtenerComisionAvance();
+    _comisionCtrl.text = comision % 1 == 0
+        ? comision.toStringAsFixed(0)
+        : comision.toString();
     if (mounted) setState(() => _cargando = false);
   }
 
   Future<void> _guardar() async {
     if (!_formKey.currentState!.validate()) return;
     final tasa = double.parse(_tasaCtrl.text.replaceAll(',', '.'));
+    final comision = double.parse(_comisionCtrl.text.replaceAll(',', '.'));
     // Guarda en BD y notifica a todo el sistema al instante (también queda en bitácora)
     await TasaService.guardar(tasa);
     await BaseDatos.instancia.guardarNombreNegocio(_nombreCtrl.text.trim());
+    await BaseDatos.instancia.guardarComisionAvance(comision);
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
@@ -56,95 +64,119 @@ class _AjustesScreenState extends State<AjustesScreen> {
       body: _cargando
           ? const Center(child: CircularProgressIndicator())
           : ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            child: Padding(
               padding: const EdgeInsets.all(16),
-              children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            'Configuración general',
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 16),
-                          TextFormField(
-                            controller: _nombreCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Nombre del negocio',
-                              prefixIcon: Icon(Icons.store),
-                              border: OutlineInputBorder(),
-                            ),
-                            validator: (v) => (v == null || v.trim().isEmpty)
-                                ? 'Requerido'
-                                : null,
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: _tasaCtrl,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            decoration: const InputDecoration(
-                              labelText: 'Tasa: Bs por 1 \$',
-                              prefixIcon: Icon(Icons.currency_exchange),
-                              suffixText: 'Bs/\$',
-                              border: OutlineInputBorder(),
-                              helperText:
-                                  'Se usa para calcular todas las referencias en Bs',
-                            ),
-                            validator: (v) {
-                              final t = double.tryParse(
-                                v?.replaceAll(',', '.') ?? '',
-                              );
-                              if (t == null || t <= 0) {
-                                return 'Ingresa una tasa válida mayor a 0';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          FilledButton.icon(
-                            onPressed: _guardar,
-                            icon: const Icon(Icons.save_outlined),
-                            label: const Text('Guardar cambios'),
-                          ),
-                        ],
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Configuración general',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _nombreCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre del negocio',
+                        prefixIcon: Icon(Icons.store),
+                        border: OutlineInputBorder(),
                       ),
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? 'Requerido'
+                          : null,
                     ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                // ---------- Bitácora ----------
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.history),
-                    title: const Text('Registro de actividad'),
-                    subtitle: const Text(
-                      'Bitácora de ventas, compras, usuarios y cambios del sistema',
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _tasaCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Tasa: Bs por 1 \$',
+                        prefixIcon: Icon(Icons.currency_exchange),
+                        suffixText: 'Bs/\$',
+                        border: OutlineInputBorder(),
+                        helperText:
+                        'Se usa para calcular todas las referencias en Bs',
+                      ),
+                      validator: (v) {
+                        final t = double.tryParse(
+                          v?.replaceAll(',', '.') ?? '',
+                        );
+                        if (t == null || t <= 0) {
+                          return 'Ingresa una tasa válida mayor a 0';
+                        }
+                        return null;
+                      },
                     ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const BitacoraScreen()),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _comisionCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Comisión de avance de efectivo (%)',
+                        prefixIcon: Icon(Icons.percent),
+                        suffixText: '%',
+                        border: OutlineInputBorder(),
+                        helperText:
+                        'Porcentaje que se precarga al hacer un avance de efectivo',
+                      ),
+                      validator: (v) {
+                        final c = double.tryParse(
+                          v?.replaceAll(',', '.') ?? '',
+                        );
+                        if (c == null || c < 0 || c > 100) {
+                          return 'Ingresa un porcentaje entre 0 y 100';
+                        }
+                        return null;
+                      },
                     ),
-                  ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: _guardar,
+                      icon: const Icon(Icons.save_outlined),
+                      label: const Text('Guardar cambios'),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8),
-                  child: Text(
-                    'Los precios se definen y registran en dólares (\$). '
-                    'Los montos en Bs son referencia calculada con la tasa actual. '
-                    'La tasa de cada venta queda guardada en el histórico.',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ),
-              ],
+              ),
             ),
+          ),
+          const SizedBox(height: 8),
+          // ---------- Bitácora ----------
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.history),
+              title: const Text('Registro de actividad'),
+              subtitle: const Text(
+                'Bitácora de ventas, compras, usuarios y cambios del sistema',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const BitacoraScreen()),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              'Los precios se definen y registran en dólares (\$). '
+                  'Los montos en Bs son referencia calculada con la tasa actual. '
+                  'La tasa de cada venta queda guardada en el histórico.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
