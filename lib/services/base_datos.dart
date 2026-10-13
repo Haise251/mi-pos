@@ -23,7 +23,7 @@ class BaseDatos {
     final ruta = join(await getDatabasesPath(), 'pos.db');
     _db = await openDatabase(
       ruta,
-      version: 6,
+      version: 7,
       onCreate: _alCrear,
       onUpgrade: _alActualizar,
     );
