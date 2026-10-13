@@ -60,118 +60,143 @@ class InventarioScreenState extends State<InventarioScreen> {
     );
     final formKey = GlobalKey<FormState>();
 
+    var esIlimitado = producto?.stockIlimitado ?? false;
+
     final guardado = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Text(producto == null ? 'Nuevo producto' : 'Editar producto'),
-        content: Form(
-          key: formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: codigoCtrl,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: 'Código de barras',
-                    hintText: 'Escanea o escribe el código',
-                    prefixIcon: Icon(Icons.qr_code_scanner),
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setEstadoDialog) => AlertDialog(
+          title: Text(producto == null ? 'Nuevo producto' : 'Editar producto'),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: codigoCtrl,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Código de barras',
+                      hintText: 'Escanea o escribe el código',
+                      prefixIcon: Icon(Icons.qr_code_scanner),
+                    ),
                   ),
-                ),
-                TextFormField(
-                  controller: nombreCtrl,
-                  decoration: const InputDecoration(labelText: 'Nombre *'),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Requerido' : null,
-                ),
-                TextFormField(
-                  controller: precioCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
+                  TextFormField(
+                    controller: nombreCtrl,
+                    decoration: const InputDecoration(labelText: 'Nombre *'),
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? 'Requerido' : null,
                   ),
-                  decoration: const InputDecoration(
-                    labelText: 'Precio en \$ *',
+                  TextFormField(
+                    controller: precioCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Precio en \$ *',
+                    ),
+                    validator: (v) =>
+                        double.tryParse(v?.replaceAll(',', '.') ?? '') == null
+                        ? 'Número inválido'
+                        : null,
                   ),
-                  validator: (v) =>
-                      double.tryParse(v?.replaceAll(',', '.') ?? '') == null
-                      ? 'Número inválido'
-                      : null,
-                ),
-                // Referencia en Bs en vivo, según la tasa actual
-                ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: precioCtrl,
-                  builder: (_, val, __) {
-                    final p =
-                        double.tryParse(val.text.replaceAll(',', '.')) ?? 0;
-                    return Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        '≈ ${formatoBs(p * _tasa)} (tasa Bs ${_tasa.toStringAsFixed(2)}/\$)',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
+                  // Referencia en Bs en vivo, según la tasa actual
+                  ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: precioCtrl,
+                    builder: (_, val, _) {
+                      final p =
+                          double.tryParse(val.text.replaceAll(',', '.')) ?? 0;
+                      return Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          '≈ ${formatoBs(p * _tasa)} (tasa Bs ${_tasa.toStringAsFixed(2)}/\$)',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Stock ilimitado ∞'),
+                    subtitle: const Text(
+                      'Activar para productos sin control de stock (agua, servicios, refill)',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    value: esIlimitado,
+                    onChanged: (val) =>
+                        setEstadoDialog(() => esIlimitado = val),
+                  ),
+                  if (!esIlimitado) ...[
+                    TextFormField(
+                      controller: stockCtrl,
+                      keyboardType: TextInputType.number,
+                      enabled: producto == null, // en edición, usar "Ajustar"
+                      decoration: InputDecoration(
+                        labelText: 'Existencias',
+                        helperText: producto == null
+                            ? null
+                            : 'Para cambiar stock usa el botón Ajustar',
+                      ),
+                    ),
+                    TextFormField(
+                      controller: minCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Stock mínimo (alerta)',
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                if (!formKey.currentState!.validate()) return;
+                final p = Producto(
+                  id: producto?.id,
+                  codigo: codigoCtrl.text.trim(),
+                  nombre: nombreCtrl.text.trim(),
+                  precio: double.parse(precioCtrl.text.replaceAll(',', '.')),
+                  stock: esIlimitado
+                      ? 0
+                      : (producto == null
+                          ? (int.tryParse(stockCtrl.text) ?? 0)
+                          : producto.stock),
+                  stockMinimo: esIlimitado
+                      ? 0
+                      : (int.tryParse(minCtrl.text) ?? 5),
+                  stockIlimitado: esIlimitado,
+                );
+                try {
+                  await BaseDatos.instancia.guardar(p);
+                  if (ctx.mounted) Navigator.pop(ctx, true);
+                } catch (_) {
+                  if (ctx.mounted) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          '⚠️ El código ya existe en otro producto',
                         ),
                       ),
                     );
-                  },
-                ),
-                TextFormField(
-                  controller: stockCtrl,
-                  keyboardType: TextInputType.number,
-                  enabled: producto == null, // en edición, usar "Ajustar"
-                  decoration: InputDecoration(
-                    labelText: 'Existencias',
-                    helperText: producto == null
-                        ? null
-                        : 'Para cambiar stock usa el botón Ajustar',
-                  ),
-                ),
-                TextFormField(
-                  controller: minCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Stock mínimo (alerta)',
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              if (!formKey.currentState!.validate()) return;
-              final p = Producto(
-                id: producto?.id,
-                codigo: codigoCtrl.text.trim(),
-                nombre: nombreCtrl.text.trim(),
-                precio: double.parse(precioCtrl.text.replaceAll(',', '.')),
-                stock: producto == null
-                    ? (int.tryParse(stockCtrl.text) ?? 0)
-                    : producto.stock,
-                stockMinimo: int.tryParse(minCtrl.text) ?? 5,
-              );
-              try {
-                await BaseDatos.instancia.guardar(p);
-                if (context.mounted) Navigator.pop(context, true);
-              } catch (_) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('⚠️ El código ya existe en otro producto'),
-                    ),
-                  );
+                  }
                 }
-              }
-            },
-            child: const Text('Guardar'),
-          ),
-        ],
+              },
+              child: const Text('Guardar'),
+            ),
+          ],
+        ),
       ),
     );
     if (guardado == true) _cargar();
@@ -180,6 +205,16 @@ class InventarioScreenState extends State<InventarioScreen> {
   // ---------- Ajuste de stock con kardex ----------
 
   Future<void> _ajustarStock(Producto p) async {
+    if (p.stockIlimitado) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'ℹ️ Este producto tiene stock ilimitado y no requiere ajuste.',
+          ),
+        ),
+      );
+      return;
+    }
     var tipo = _TipoAjuste.entrada;
     final cantCtrl = TextEditingController();
     final motivoCtrl = TextEditingController();
@@ -416,11 +451,18 @@ class InventarioScreenState extends State<InventarioScreen> {
                     separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (_, i) {
                       final p = _productos[i];
-                      final color = p.sinStock
-                          ? Colors.red
-                          : (p.bajoStock ? Colors.orange : Colors.teal);
+                      final color = p.stockIlimitado
+                          ? Colors.teal
+                          : (p.sinStock
+                              ? Colors.red
+                              : (p.bajoStock ? Colors.orange : Colors.teal));
                       return ListTile(
-                        leading: Icon(Icons.inventory_2_outlined, color: color),
+                        leading: Icon(
+                          p.stockIlimitado
+                              ? Icons.all_inclusive
+                              : Icons.inventory_2_outlined,
+                          color: color,
+                        ),
                         title: Text(p.nombre),
                         subtitle: Text(
                           'Cód: ${p.codigo.isEmpty ? '—' : p.codigo}',
@@ -439,7 +481,9 @@ class InventarioScreenState extends State<InventarioScreen> {
                                   ),
                                 ),
                                 Text(
-                                  'Stock: ${p.stock}',
+                                  p.stockIlimitado
+                                      ? 'Stock: Ilimitado ∞'
+                                      : 'Stock: ${p.stock}',
                                   style: TextStyle(fontSize: 12, color: color),
                                 ),
                               ],

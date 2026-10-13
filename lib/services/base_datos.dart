@@ -45,11 +45,13 @@ class BaseDatos {
   Future<void> _crearTablas(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS productos (
-        id     INTEGER PRIMARY KEY AUTOINCREMENT,
-        codigo TEXT UNIQUE,
-        nombre TEXT NOT NULL,
-        precio REAL NOT NULL,
-        stock  INTEGER NOT NULL DEFAULT 0
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        codigo          TEXT UNIQUE,
+        nombre          TEXT NOT NULL,
+        precio          REAL NOT NULL,
+        stock           INTEGER NOT NULL DEFAULT 0,
+        stock_minimo    INTEGER NOT NULL DEFAULT 5,
+        stock_ilimitado INTEGER NOT NULL DEFAULT 0
       )
     ''');
     await db.execute('''
@@ -186,6 +188,11 @@ class BaseDatos {
     try {
       await db.execute(
         'ALTER TABLE productos ADD COLUMN stock_minimo INTEGER NOT NULL DEFAULT 5',
+      );
+    } catch (_) {}
+    try {
+      await db.execute(
+        'ALTER TABLE productos ADD COLUMN stock_ilimitado INTEGER NOT NULL DEFAULT 0',
       );
     } catch (_) {}
     try {
@@ -357,7 +364,7 @@ class BaseDatos {
     final db = await _bd;
     await db.transaction((txn) async {
       await txn.rawUpdate(
-        'UPDATE productos SET stock = stock + ? WHERE id = ?',
+        'UPDATE productos SET stock = stock + ? WHERE id = ? AND (stock_ilimitado IS NULL OR stock_ilimitado = 0)',
         [delta, id],
       );
       final filas = await txn.query(
@@ -435,7 +442,7 @@ class BaseDatos {
           'subtotal_usd': i.subtotalUsd,
         });
         await txn.rawUpdate(
-          'UPDATE productos SET stock = stock - ? WHERE id = ?',
+          'UPDATE productos SET stock = stock - ? WHERE id = ? AND (stock_ilimitado IS NULL OR stock_ilimitado = 0)',
           [i.cantidad, i.productoId],
         );
         final filas = await txn.query(
@@ -526,7 +533,7 @@ class BaseDatos {
           'subtotal_usd': i.subtotalUsd,
         });
         await txn.rawUpdate(
-          'UPDATE productos SET stock = stock + ? WHERE id = ?',
+          'UPDATE productos SET stock = stock + ? WHERE id = ? AND (stock_ilimitado IS NULL OR stock_ilimitado = 0)',
           [i.cantidad, i.productoId],
         );
         final filas = await txn.query(

@@ -5,6 +5,7 @@ class Producto {
   final double precio;
   final int stock;
   final int stockMinimo;
+  final bool stockIlimitado;
 
   const Producto({
     this.id,
@@ -13,10 +14,11 @@ class Producto {
     required this.precio,
     this.stock = 0,
     this.stockMinimo = 5,
+    this.stockIlimitado = false,
   });
 
-  bool get bajoStock => stock > 0 && stock <= stockMinimo;
-  bool get sinStock => stock <= 0;
+  bool get bajoStock => !stockIlimitado && stock > 0 && stock <= stockMinimo;
+  bool get sinStock => !stockIlimitado && stock <= 0;
 
   Map<String, dynamic> toMap() => {
     'id': id,
@@ -25,6 +27,7 @@ class Producto {
     'precio': precio,
     'stock': stock,
     'stock_minimo': stockMinimo,
+    'stock_ilimitado': stockIlimitado ? 1 : 0,
   };
 
   factory Producto.fromMap(Map<String, dynamic> map) => Producto(
@@ -32,7 +35,8 @@ class Producto {
     codigo: (map['codigo'] ?? '') as String,
     nombre: map['nombre'] as String,
     precio: (map['precio'] as num).toDouble(),
-    stock: map['stock'] as int,
+    stock: (map['stock'] ?? 0) as int,
     stockMinimo: (map['stock_minimo'] ?? 5) as int,
+    stockIlimitado: (map['stock_ilimitado'] ?? 0) == 1,
   );
 }

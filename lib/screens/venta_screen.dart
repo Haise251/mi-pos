@@ -55,7 +55,7 @@ class VentaScreenState extends State<VentaScreen> {
 
   void _agregar(Producto p) {
     if (p.id == null) return;
-    if (_enCarrito(p) >= p.stock) return; // sin stock disponible
+    if (!p.stockIlimitado && _enCarrito(p) >= p.stock) return; // sin stock disponible
     setState(() {
       final existente = _carrito[p.id];
       if (existente == null) {
@@ -493,7 +493,7 @@ class VentaScreenState extends State<VentaScreen> {
       itemBuilder: (_, i) {
         final p = _catalogo[i];
         final enCarrito = _enCarrito(p);
-        final sinStock = p.stock <= 0;
+        final sinStock = p.sinStock;
         return Card(
           color: sinStock ? Colors.grey.shade200 : null,
           child: InkWell(
@@ -506,7 +506,11 @@ class VentaScreenState extends State<VentaScreen> {
                   Badge(
                     isLabelVisible: enCarrito > 0,
                     label: Text('$enCarrito'),
-                    child: const Icon(Icons.fastfood, size: 28),
+                    child: Icon(
+                      p.stockIlimitado ? Icons.all_inclusive : Icons.fastfood,
+                      size: 28,
+                      color: p.stockIlimitado ? Colors.teal : null,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -521,10 +525,12 @@ class VentaScreenState extends State<VentaScreen> {
                     style: const TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                   Text(
-                    'Stock: ${p.stock}',
+                    p.stockIlimitado ? 'Stock: ∞' : 'Stock: ${p.stock}',
                     style: TextStyle(
                       fontSize: 11,
-                      color: p.stock <= 5 ? Colors.orange : Colors.grey,
+                      color: p.stockIlimitado
+                          ? Colors.teal
+                          : (p.stock <= 5 ? Colors.orange : Colors.grey),
                     ),
                   ),
                 ],
