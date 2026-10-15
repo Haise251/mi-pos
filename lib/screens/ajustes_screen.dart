@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/base_datos.dart';
+import '../services/excel_service.dart';
 import '../services/tasa_service.dart';
 import 'bitacora_screen.dart';
 
@@ -17,6 +18,7 @@ class _AjustesScreenState extends State<AjustesScreen> {
   final _tasaCtrl = TextEditingController();
   final _comisionCtrl = TextEditingController();
   bool _cargando = true;
+  bool _procesandoRespaldo = false;
 
   @override
   void initState() {
@@ -47,7 +49,6 @@ class _AjustesScreenState extends State<AjustesScreen> {
     if (!_formKey.currentState!.validate()) return;
     final tasa = double.parse(_tasaCtrl.text.replaceAll(',', '.'));
     final comision = double.parse(_comisionCtrl.text.replaceAll(',', '.'));
-    // Guarda en BD y notifica a todo el sistema al instante (también queda en bitácora)
     await TasaService.guardar(tasa);
     await BaseDatos.instancia.guardarNombreNegocio(_nombreCtrl.text.trim());
     await BaseDatos.instancia.guardarComisionAvance(comision);
@@ -55,6 +56,105 @@ class _AjustesScreenState extends State<AjustesScreen> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('✅ Ajustes guardados')));
+  }
+
+  // ---------- Respaldo Excel ----------
+
+  Future<void> _exportarExcel() async {
+    setState(() => _procesandoRespaldo = true);
+    try {
+      final ruta = await ExcelService.instancia.exportarRespaldo();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            ruta == null
+                ? 'Exportación cancelada'
+                : '✅ Respaldo guardado en:\n$ruta',
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Error al exportar: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _procesandoRespaldo = false);
+    }
+  }
+
+  Future<void> _importarExcel() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Importar respaldo'),
+        content: const Text(
+          'Se crearán los productos y clientes que falten y se '
+              'actualizarán los existentes según el archivo Excel.\n\n'
+              'No se borrará nada del sistema actual.\n\n¿Continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Importar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    setState(() => _procesandoRespaldo = true);
+    try {
+      final r = await ExcelService.instancia.importarRespaldo();
+      if (!mounted) return;
+      if (r['cancelado'] == true) return;
+      if (r['error'] != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ ${r['error']}')),
+        );
+        return;
+      }
+      // Restauramos la configuración si venía en el archivo
+      final tasa = r['tasa'] as double?;
+      final comision = r['comision'] as double?;
+      final negocio = r['nombre'] as String?;
+      if (tasa != null && tasa > 0) await TasaService.guardar(tasa);
+      if (comision != null) {
+        await BaseDatos.instancia.guardarComisionAvance(comision);
+      }
+      if (negocio != null) {
+        await BaseDatos.instancia.guardarNombreNegocio(negocio);
+      }
+      await _cargar();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '✅ Productos: ${r['productosCreados']} creados, '
+                '${r['productosActualizados']} actualizados'
+                '${r['productosOmitidos'] > 0 ? ', ${r['productosOmitidos']} omitidos' : ''}\n'
+                'Clientes: ${r['clientesCreados']} nuevos, '
+                '${r['clientesActualizados']} actualizados',
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Error al importar: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _procesandoRespaldo = false);
+    }
   }
 
   @override
@@ -146,6 +246,57 @@ class _AjustesScreenState extends State<AjustesScreen> {
                     ),
                   ],
                 ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          // ---------- Respaldo Excel ----------
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Respaldo de datos (Excel)',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Exporta productos, clientes y configuración a un '
+                        'archivo .xlsx, o restaura desde uno. La importación '
+                        'crea lo que falta y actualiza lo existente.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 12),
+                  if (_procesandoRespaldo) ...[
+                    const LinearProgressIndicator(),
+                    const SizedBox(height: 12),
+                  ],
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _procesandoRespaldo
+                              ? null
+                              : _exportarExcel,
+                          icon: const Icon(Icons.file_download_outlined),
+                          label: const Text('Exportar'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FilledButton.tonalIcon(
+                          onPressed: _procesandoRespaldo
+                              ? null
+                              : _importarExcel,
+                          icon: const Icon(Icons.file_upload_outlined),
+                          label: const Text('Importar'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ),

@@ -292,17 +292,62 @@ class BaseDatos {
     return filas.map(Producto.fromMap).toList();
   }
 
-  Future<Producto?> buscarPorCodigo(String codigo) async {
+  /// Genera variantes de un código de barras para búsqueda tolerante:
+  /// UPC-A (12 dígitos) ↔ EAN-13 (el mismo código con 0 adelante).
+  List<String> _variantesCodigo(String codigo) {
     final c = codigo.trim();
-    if (c.isEmpty) return null;
+    final variantes = <String>[c];
+    if (c.isEmpty || !RegExp(r'^\d+$').hasMatch(c)) return variantes;
+    if (c.length == 12) {
+      variantes.add('0$c');
+    } else if (c.length == 13 && c.startsWith('0')) {
+      variantes.add(c.substring(1));
+    }
+    return variantes;
+  }
+
+  Future<Producto?> buscarPorCodigo(String codigo) async {
+    final candidatos = await buscarCandidatos(codigo);
+    return candidatos.length == 1 ? candidatos.first : null;
+  }
+
+  /// Devuelve TODOS los productos que coinciden (exacto, variante UPC/EAN
+  /// o parcial). Sirve para mostrar un selector cuando el lector trunca
+  /// el código y la coincidencia es ambigua.
+  Future<List<Producto>> buscarCandidatos(String codigo) async {
+    final variantes = _variantesCodigo(codigo);
     final db = await _bd;
-    final filas = await db.query(
-      'productos',
-      where: 'codigo = ?',
-      whereArgs: [c],
-      limit: 1,
-    );
-    return filas.isEmpty ? null : Producto.fromMap(filas.first);
+
+    // Match exacto: un solo candidato y terminamos
+    for (final c in variantes) {
+      final filas = await db.query(
+        'productos',
+        where: 'codigo = ?',
+        whereArgs: [c],
+        limit: 1,
+      );
+      if (filas.isNotEmpty) return [Producto.fromMap(filas.first)];
+    }
+
+    // Match parcial: código que empiece o termine con lo leído
+    final limpio = codigo.trim();
+    if (limpio.length >= 8 && RegExp(r'^\d+$').hasMatch(limpio)) {
+      final filas = await db.query(
+        'productos',
+        where: "codigo IS NOT NULL AND codigo != '' AND codigo != '0000001' "
+            'AND (codigo LIKE ? OR codigo LIKE ?)',
+        whereArgs: ['$limpio%', '%$limpio'],
+        limit: 12,
+      );
+      final vistos = <int>{};
+      final out = <Producto>[];
+      for (final f in filas) {
+        final p = Producto.fromMap(f);
+        if (p.id != null && vistos.add(p.id!)) out.add(p);
+      }
+      return out;
+    }
+    return [];
   }
 
   Future<int> guardar(Producto p) async {
@@ -672,6 +717,86 @@ class BaseDatos {
 
   Future<List<Map<String, dynamic>>> listarClientes() async =>
       (await _bd).query('clientes', orderBy: 'nombre');
+
+  /// Importa productos desde Excel: si el código existe actualiza,
+  /// si no existe crea. Devuelve contadores para el reporte.
+  Future<Map<String, int>> importarProductos(List<Producto> productos) async {
+    final db = await _bd;
+    var creados = 0, actualizados = 0, omitidos = 0;
+    for (final p in productos) {
+      try {
+        final existente = p.codigo.isNotEmpty
+            ? await db.query(
+          'productos',
+          where: 'codigo = ?',
+          whereArgs: [p.codigo],
+          limit: 1,
+        )
+            : <Map<String, dynamic>>[];
+        final mapa = p.toMap()..removeWhere((k, v) => k == 'id');
+        if (existente.isNotEmpty) {
+          await db.update(
+            'productos',
+            mapa,
+            where: 'id = ?',
+            whereArgs: [existente.first['id']],
+          );
+          actualizados++;
+        } else {
+          await db.insert('productos', mapa);
+          creados++;
+        }
+      } catch (_) {
+        omitidos++;
+      }
+    }
+    await registrarBitacora(
+      'producto_importar',
+      'Excel → creados: $creados, actualizados: $actualizados, omitidos: $omitidos',
+    );
+    return {'creados': creados, 'actualizados': actualizados, 'omitidos': omitidos};
+  }
+
+  /// Importa clientes desde Excel: coincide por nombre (ignora mayúsculas).
+  /// Si existe, actualiza el teléfono; si no, lo crea.
+  Future<Map<String, int>> importarClientes(
+      List<Map<String, dynamic>> clientes,
+      ) async {
+    final db = await _bd;
+    var creados = 0, actualizados = 0;
+    for (final c in clientes) {
+      final nombre = (c['nombre'] as String? ?? '').trim();
+      if (nombre.isEmpty) continue;
+      final tel = (c['telefono'] as String? ?? '').trim();
+      final existente = await db.query(
+        'clientes',
+        where: 'LOWER(nombre) = LOWER(?)',
+        whereArgs: [nombre],
+        limit: 1,
+      );
+      if (existente.isNotEmpty) {
+        await db.update(
+          'clientes',
+          {'telefono': tel},
+          where: 'id = ?',
+          whereArgs: [existente.first['id']],
+        );
+        actualizados++;
+      } else {
+        await db.insert('clientes', {
+          'nombre': nombre,
+          'telefono': tel,
+          'creado_en': DateTime.now().toIso8601String(),
+        });
+        creados++;
+      }
+    }
+    await registrarBitacora(
+      'cliente_importar',
+      'Excel → creados: $creados, actualizados: $actualizados',
+    );
+    return {'creados': creados, 'actualizados': actualizados};
+  }
 
   Future<List<Map<String, dynamic>>> clientesConSaldo() async {
     final db = await _bd;
