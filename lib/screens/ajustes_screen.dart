@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/base_datos.dart';
 import '../services/excel_service.dart';
+import '../services/respaldo_service.dart';
 import '../services/tasa_service.dart';
 import 'bitacora_screen.dart';
 
@@ -49,6 +50,7 @@ class _AjustesScreenState extends State<AjustesScreen> {
     if (!_formKey.currentState!.validate()) return;
     final tasa = double.parse(_tasaCtrl.text.replaceAll(',', '.'));
     final comision = double.parse(_comisionCtrl.text.replaceAll(',', '.'));
+    // Guarda en BD y notifica a todo el sistema al instante (también queda en bitácora)
     await TasaService.guardar(tasa);
     await BaseDatos.instancia.guardarNombreNegocio(_nombreCtrl.text.trim());
     await BaseDatos.instancia.guardarComisionAvance(comision);
@@ -157,6 +159,105 @@ class _AjustesScreenState extends State<AjustesScreen> {
     }
   }
 
+  // ---------- Respaldo local (.db) ----------
+
+  Future<void> _exportarBd() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Copia local de la base de datos'),
+        content: const Text(
+          'Se guardará una copia completa (.db) de TODO: productos, ventas, '
+              'clientes, créditos, compras y bitácora.\n\n¿Continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Guardar copia'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    setState(() => _procesandoRespaldo = true);
+    try {
+      final ruta = await RespaldoService.instancia.exportar();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            ruta == null
+                ? 'Operación cancelada'
+                : '✅ Copia guardada en:\n$ruta',
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _procesandoRespaldo = false);
+    }
+  }
+
+  Future<void> _restaurarBd() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('⚠️ Restaurar base de datos'),
+        content: const Text(
+          'Esto REEMPLAZARÁ todos los datos actuales por los del archivo '
+              'que elijas:\n\n'
+              '• Ventas, compras y abonos actuales se perderán\n'
+              '• Volverán los del respaldo\n\n'
+              'Recomendación: exporta una copia actual ANTES de restaurar.\n\n'
+              '¿Continuar?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Restaurar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    setState(() => _procesandoRespaldo = true);
+    try {
+      final msg = await RespaldoService.instancia.restaurar();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ $msg'),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _procesandoRespaldo = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -166,6 +267,7 @@ class _AjustesScreenState extends State<AjustesScreen> {
           : ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // ---------- Configuración general ----------
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -250,7 +352,7 @@ class _AjustesScreenState extends State<AjustesScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          // ---------- Respaldo Excel ----------
+          // ---------- Respaldo Excel + Copia local BD ----------
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -292,6 +394,46 @@ class _AjustesScreenState extends State<AjustesScreen> {
                               : _importarExcel,
                           icon: const Icon(Icons.file_upload_outlined),
                           label: const Text('Importar'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 24),
+                  Text(
+                    'Copia completa local (.db)',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Incluye TODO: ventas históricas, créditos, compras '
+                        'y bitácora. La restauración reemplaza todos los '
+                        'datos actuales.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _procesandoRespaldo
+                              ? null
+                              : _exportarBd,
+                          icon: const Icon(Icons.save_outlined),
+                          label: const Text('Copiar BD'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FilledButton.tonalIcon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.red.shade50,
+                            foregroundColor: Colors.red.shade900,
+                          ),
+                          onPressed: _procesandoRespaldo
+                              ? null
+                              : _restaurarBd,
+                          icon: const Icon(Icons.restore),
+                          label: const Text('Restaurar'),
                         ),
                       ),
                     ],

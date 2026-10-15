@@ -922,6 +922,17 @@ class BaseDatos {
     );
   }
 
+  // ---------- Respaldo / restauración ----------
+
+  /// Expone la BD abierta para hacer checkpoint de WAL antes de copiar.
+  Future<Database> bdParaRespaldo() => _bd;
+
+  /// Cierra la conexión activa. La próxima operación la reabre desde disco.
+  Future<void> cerrar() async {
+    await _db?.close();
+    _db = null;
+  }
+
   // ---------- Reportes ----------
 
   Future<Map<String, dynamic>> resumenDia(String dia) async {
