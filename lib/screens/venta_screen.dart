@@ -81,8 +81,6 @@ class VentaScreenState extends State<VentaScreen> {
   void _agregar(Producto p) {
     if (p.id == null && p.codigo != '0000001') return;
 
-    // Avance de efectivo: clave única por avance (permite varios en el ticket).
-    // Producto normal: usamos su ID real.
     final dynamic clave =
     p.codigo == '0000001' ? DateTime.now().microsecondsSinceEpoch : p.id!;
 
@@ -306,7 +304,9 @@ class VentaScreenState extends State<VentaScreen> {
         _camaraController = null;
         _camaraActiva = false;
       } else {
-        _camaraController = MobileScannerController();
+        _camaraController = MobileScannerController(
+          facing: CameraFacing.back,
+        );
         _camaraActiva = true;
       }
     });
@@ -324,7 +324,6 @@ class VentaScreenState extends State<VentaScreen> {
     }
     if (codigo == null) return;
 
-    // Cooldown: el mismo código solo se procesa cada 2.5 s
     final ahora = DateTime.now();
     if (codigo == _ultimoCodigoCam &&
         ahora.difference(_ultimoTiempoCam) <
@@ -337,40 +336,6 @@ class VentaScreenState extends State<VentaScreen> {
     _procesandoCam = true;
     await _resolverYAgregar(codigo);
     _procesandoCam = false;
-  }
-
-  // ---------- Escáner con cámara (pantallas aparte) ----------
-
-  Future<void> _escanearConCamara() async {
-    final codigo = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(builder: (_) => const EscanerCamaraScreen()),
-    );
-    if (codigo == null || codigo.trim().isEmpty) return;
-    _escanerCtrl.text = codigo.trim();
-    await _procesarEscaneo();
-  }
-
-  Future<String?> _procesarCodigoCamara(String codigo) async {
-    final porCodigo = await BaseDatos.instancia.buscarPorCodigo(codigo);
-    if (porCodigo == null) return null;
-    _agregar(porCodigo);
-    _catalogo = await BaseDatos.instancia.listar();
-    if (mounted) setState(() {});
-    return porCodigo.nombre;
-  }
-
-  Future<void> _escanearContinuo() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => EscanerCamaraScreen(
-          continuo: true,
-          onCodigo: _procesarCodigoCamara,
-        ),
-      ),
-    );
-    if (mounted) setState(() {});
   }
 
   Widget _panelCamaraEmbebida() {
@@ -415,6 +380,40 @@ class VentaScreenState extends State<VentaScreen> {
         ],
       ),
     );
+  }
+
+  // ---------- Escáner con cámara (pantallas aparte) ----------
+
+  Future<void> _escanearConCamara() async {
+    final codigo = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const EscanerCamaraScreen()),
+    );
+    if (codigo == null || codigo.trim().isEmpty) return;
+    _escanerCtrl.text = codigo.trim();
+    await _procesarEscaneo();
+  }
+
+  Future<String?> _procesarCodigoCamara(String codigo) async {
+    final porCodigo = await BaseDatos.instancia.buscarPorCodigo(codigo);
+    if (porCodigo == null) return null;
+    _agregar(porCodigo);
+    _catalogo = await BaseDatos.instancia.listar();
+    if (mounted) setState(() {});
+    return porCodigo.nombre;
+  }
+
+  Future<void> _escanearContinuo() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EscanerCamaraScreen(
+          continuo: true,
+          onCodigo: _procesarCodigoCamara,
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
   }
 
   Future<int?> _dialogoNuevoClienteRapido(BuildContext parentCtx) async {
@@ -491,9 +490,20 @@ class VentaScreenState extends State<VentaScreen> {
     final clientes = await BaseDatos.instancia.listarClientes();
     final montoCtrl = TextEditingController();
     final refCtrl = TextEditingController();
+    // Tasa específica para valorar cobros en divisas (USD). Si nunca se
+    // configuró devuelve 0 y partimos de la tasa general.
+    final tasaDivisaGuardada =
+    await BaseDatos.instancia.obtenerTasaDivisa();
+    final tasaUsdCtrl = TextEditingController(
+      text: (tasaDivisaGuardada > 0 ? tasaDivisaGuardada : _tasa)
+          .toStringAsFixed(2),
+    );
     var metodo = metodosPago.first;
     final pagos = <Pago>[];
     int? clienteSel;
+
+    double tasaUsdActual() =>
+        double.tryParse(tasaUsdCtrl.text.replaceAll(',', '.')) ?? _tasa;
 
     double restante() =>
         totalUsd - pagos.fold<double>(0, (s, p) => s + p.montoUsd);
@@ -513,6 +523,10 @@ class VentaScreenState extends State<VentaScreen> {
           final r = restante();
           final vuelto = r < -0.005 ? -r : 0.0;
           final cubierto = pagos.isNotEmpty && r <= 0.005;
+          final esDivisa = !metodo.esBs;
+          final tasaUsd = tasaUsdActual();
+          final montoIngresado =
+              double.tryParse(montoCtrl.text.replaceAll(',', '.')) ?? 0;
 
           return AlertDialog(
             title: const Text('Cobrar'),
@@ -539,7 +553,7 @@ class VentaScreenState extends State<VentaScreen> {
                             ),
                           ),
                           Text(
-                            'Tasa: Bs ${_tasa.toStringAsFixed(2)} / \$1',
+                            'Tasa de referencia: Bs ${_tasa.toStringAsFixed(2)} / \$1',
                             style: const TextStyle(fontSize: 12),
                           ),
                         ],
@@ -637,6 +651,38 @@ class VentaScreenState extends State<VentaScreen> {
                         isDense: true,
                       ),
                     ),
+                    // ---------- Tasa especial para cobros en divisas ----------
+                    if (esDivisa) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: tasaUsdCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Tasa Bs/\$ para este cobro en divisas',
+                          helperText:
+                          'Solo afecta cómo se valoran los \$ de este cobro',
+                          prefixIcon: Icon(Icons.currency_exchange),
+                          suffixText: 'Bs/\$',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        onChanged: (_) => setEstado(() {}),
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          montoIngresado <= 0
+                              ? ''
+                              : '${formatoUsd(montoIngresado)} ≈ ${formatoBs(montoIngresado * tasaUsd)}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ],
                     if (!metodo.esEfectivo) ...[
                       const SizedBox(height: 8),
                       TextField(
@@ -650,7 +696,7 @@ class VentaScreenState extends State<VentaScreen> {
                     ],
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
-                      onPressed: () {
+                      onPressed: () async {
                         final monto =
                             double.tryParse(
                               montoCtrl.text.replaceAll(',', '.'),
@@ -669,18 +715,24 @@ class VentaScreenState extends State<VentaScreen> {
                         }
                         double usd = metodo.esBs ? monto / _tasa : monto;
                         if (!metodo.esEfectivo) usd = min(usd, r);
+                        final tasaAplicada = metodo.esBs ? _tasa : tasaUsd;
                         setEstado(() {
                           pagos.add(
                             Pago(
                               metodo: metodo.id,
                               montoUsd: usd,
-                              montoBs: usd * _tasa,
+                              montoBs: usd * tasaAplicada,
                               referencia: refCtrl.text.trim(),
                             ),
                           );
                           refCtrl.clear();
                           sugerirMonto();
                         });
+                        // Recordamos la última tasa de divisa usada
+                        if (!metodo.esBs) {
+                          await BaseDatos.instancia
+                              .guardarTasaDivisa(tasaAplicada);
+                        }
                       },
                       icon: const Icon(Icons.add),
                       label: const Text('Agregar pago'),
@@ -755,6 +807,7 @@ class VentaScreenState extends State<VentaScreen> {
     ).whenComplete(() {
       montoCtrl.dispose();
       refCtrl.dispose();
+      tasaUsdCtrl.dispose();
     });
   }
 

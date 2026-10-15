@@ -318,7 +318,6 @@ class BaseDatos {
     final variantes = _variantesCodigo(codigo);
     final db = await _bd;
 
-    // Match exacto: un solo candidato y terminamos
     for (final c in variantes) {
       final filas = await db.query(
         'productos',
@@ -329,7 +328,6 @@ class BaseDatos {
       if (filas.isNotEmpty) return [Producto.fromMap(filas.first)];
     }
 
-    // Match parcial: código que empiece o termine con lo leído
     final limpio = codigo.trim();
     if (limpio.length >= 8 && RegExp(r'^\d+$').hasMatch(limpio)) {
       final filas = await db.query(
@@ -1188,6 +1186,20 @@ class BaseDatos {
     await registrarBitacora(
       'config',
       'Comisión de avance efectivo: ${pct.toStringAsFixed(2)}%',
+    );
+  }
+
+  Future<double> obtenerTasaDivisa() async {
+    final v = await getConfig('tasa_divisa');
+    final d = double.tryParse(v ?? '') ?? 0;
+    return d > 0 ? d : 0; // 0 = no configurada, usar la general
+  }
+
+  Future<void> guardarTasaDivisa(double tasa) async {
+    await setConfig('tasa_divisa', tasa.toString());
+    await registrarBitacora(
+      'config',
+      'Tasa de cobro en divisas: Bs ${tasa.toStringAsFixed(2)} / \$1',
     );
   }
 

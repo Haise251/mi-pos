@@ -17,6 +17,7 @@ class _AjustesScreenState extends State<AjustesScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nombreCtrl = TextEditingController();
   final _tasaCtrl = TextEditingController();
+  final _tasaDivisaCtrl = TextEditingController();
   final _comisionCtrl = TextEditingController();
   bool _cargando = true;
   bool _procesandoRespaldo = false;
@@ -31,6 +32,7 @@ class _AjustesScreenState extends State<AjustesScreen> {
   void dispose() {
     _nombreCtrl.dispose();
     _tasaCtrl.dispose();
+    _tasaDivisaCtrl.dispose();
     _comisionCtrl.dispose();
     super.dispose();
   }
@@ -39,6 +41,10 @@ class _AjustesScreenState extends State<AjustesScreen> {
     _nombreCtrl.text = await BaseDatos.instancia.obtenerNombreNegocio();
     final tasa = await BaseDatos.instancia.obtenerTasa();
     _tasaCtrl.text = tasa.toString();
+    // Si no hay tasa de divisa configurada, precargamos la general
+    final tasaDivisa = await BaseDatos.instancia.obtenerTasaDivisa();
+    _tasaDivisaCtrl.text =
+        (tasaDivisa > 0 ? tasaDivisa : tasa).toStringAsFixed(2);
     final comision = await BaseDatos.instancia.obtenerComisionAvance();
     _comisionCtrl.text = comision % 1 == 0
         ? comision.toStringAsFixed(0)
@@ -49,9 +55,11 @@ class _AjustesScreenState extends State<AjustesScreen> {
   Future<void> _guardar() async {
     if (!_formKey.currentState!.validate()) return;
     final tasa = double.parse(_tasaCtrl.text.replaceAll(',', '.'));
+    final tasaDivisa = double.parse(_tasaDivisaCtrl.text.replaceAll(',', '.'));
     final comision = double.parse(_comisionCtrl.text.replaceAll(',', '.'));
     // Guarda en BD y notifica a todo el sistema al instante (también queda en bitácora)
     await TasaService.guardar(tasa);
+    await BaseDatos.instancia.guardarTasaDivisa(tasaDivisa);
     await BaseDatos.instancia.guardarNombreNegocio(_nombreCtrl.text.trim());
     await BaseDatos.instancia.guardarComisionAvance(comision);
     if (!mounted) return;
@@ -123,7 +131,6 @@ class _AjustesScreenState extends State<AjustesScreen> {
         );
         return;
       }
-      // Restauramos la configuración si venía en el archivo
       final tasa = r['tasa'] as double?;
       final comision = r['comision'] as double?;
       final negocio = r['nombre'] as String?;
@@ -304,7 +311,31 @@ class _AjustesScreenState extends State<AjustesScreen> {
                         suffixText: 'Bs/\$',
                         border: OutlineInputBorder(),
                         helperText:
-                        'Se usa para calcular todas las referencias en Bs',
+                        'Tasa general del sistema (precios y cobros en Bs)',
+                      ),
+                      validator: (v) {
+                        final t = double.tryParse(
+                          v?.replaceAll(',', '.') ?? '',
+                        );
+                        if (t == null || t <= 0) {
+                          return 'Ingresa una tasa válida mayor a 0';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _tasaDivisaCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Tasa para cobros en divisas',
+                        prefixIcon: Icon(Icons.attach_money),
+                        suffixText: 'Bs/\$',
+                        border: OutlineInputBorder(),
+                        helperText:
+                        'Tasa especial para valorar los cobros en USD (Efectivo \$, Zelle, Binance). Se precarga al cobrar y puede ajustarse al vuelo',
                       ),
                       validator: (v) {
                         final t = double.tryParse(
