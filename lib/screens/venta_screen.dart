@@ -525,6 +525,9 @@ class VentaScreenState extends State<VentaScreen> {
           final cubierto = pagos.isNotEmpty && r <= 0.005;
           final esDivisa = !metodo.esBs;
           final tasaUsd = tasaUsdActual();
+          // La tasa para mostrar el total en Bs depende del método:
+          // divisas usan su tasa especial.
+          final tasaParaMostrar = esDivisa ? tasaUsd : _tasa;
           final montoIngresado =
               double.tryParse(montoCtrl.text.replaceAll(',', '.')) ?? 0;
 
@@ -546,14 +549,16 @@ class VentaScreenState extends State<VentaScreen> {
                       child: Column(
                         children: [
                           Text(
-                            '${formatoUsd(totalUsd)} · ${formatoBs(totalUsd * _tasa)}',
+                            '${formatoUsd(totalUsd)} · ${formatoBs(totalUsd * tasaParaMostrar)}',
                             style: const TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
                           Text(
-                            'Tasa de referencia: Bs ${_tasa.toStringAsFixed(2)} / \$1',
+                            esDivisa
+                                ? 'Cobro en divisas con tasa: Bs ${tasaUsd.toStringAsFixed(2)} / \$1'
+                                : 'Tasa de referencia: Bs ${_tasa.toStringAsFixed(2)} / \$1',
                             style: const TextStyle(fontSize: 12),
                           ),
                         ],
@@ -771,7 +776,7 @@ class VentaScreenState extends State<VentaScreen> {
                               style: TextStyle(fontWeight: FontWeight.bold),
                             ),
                             Text(
-                              '${formatoUsd(vuelto)} · ${formatoBs(vuelto * _tasa)}',
+                              '${formatoUsd(vuelto)} · ${formatoBs(vuelto * tasaParaMostrar)}',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 color: Colors.orange.shade900,
@@ -792,10 +797,21 @@ class VentaScreenState extends State<VentaScreen> {
               ),
               FilledButton.icon(
                 onPressed: cubierto
-                    ? () => Navigator.pop(ctx, {
-                  'pagos': List<Pago>.of(pagos),
-                  'clienteId': clienteSel,
-                })
+                    ? () {
+                  // Si TODOS los pagos son en divisas, la venta se
+                  // registra con la tasa de divisa; si mezcla, con
+                  // la global (cada pago conserva su monto Bs).
+                  final todasDivisas = pagos.every((p) {
+                    final m = metodoPorId(p.metodo);
+                    return m != null && !m.esBs;
+                  });
+                  Navigator.pop(ctx, {
+                    'pagos': List<Pago>.of(pagos),
+                    'clienteId': clienteSel,
+                    'tasaVenta':
+                    todasDivisas ? tasaUsdActual() : _tasa,
+                  });
+                }
                     : null,
                 icon: const Icon(Icons.check_circle_outline),
                 label: const Text('Confirmar'),
@@ -840,11 +856,13 @@ class VentaScreenState extends State<VentaScreen> {
     if (res == null || !mounted) return;
     final pagos = (res['pagos'] as List).cast<Pago>();
     final clienteId = res['clienteId'] as int?;
+    // Si el cobro fue 100% en divisas, viene la tasa de divisa que se usó
+    final tasaVenta = (res['tasaVenta'] as double?) ?? _tasa;
 
     final ventaId = await BaseDatos.instancia.registrarVenta(
       items: items,
       pagos: pagos,
-      tasa: _tasa,
+      tasa: tasaVenta,
       clienteId: clienteId,
     );
 
@@ -856,7 +874,10 @@ class VentaScreenState extends State<VentaScreen> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('✅ Venta registrada'),
-        content: Text('Venta #$ventaId\nTotal: ${formatoUsd(totalUsd)}'),
+        content: Text(
+          'Venta #$ventaId\n'
+              'Total: ${formatoUsd(totalUsd)} · ${formatoBs(totalUsd * tasaVenta)}',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
